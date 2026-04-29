@@ -1,0 +1,2 @@
+"""Data collector package."""
+
