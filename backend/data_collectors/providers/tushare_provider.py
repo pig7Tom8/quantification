@@ -92,7 +92,7 @@ class TushareProvider(BaseMarketDataProvider):
                     low=_safe_float(row.get("low"), close),
                     close=close,
                     volume=_safe_float(row.get("vol")),
-                    amount=_safe_float(row.get("amount")),
+                    amount=_safe_float(row.get("amount")) * 1000,
                     turnover_rate=0.0,
                     pct_chg=_safe_float(row.get("pct_chg")),
                     ma5=close,

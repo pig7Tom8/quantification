@@ -8,7 +8,14 @@ from typing import Iterator
 
 from backend.config import settings
 from backend.db.schema import SCHEMA_SQL
-from backend.models import DailyQuote, FactorScore, FundamentalSnapshot, StockBasic
+from backend.models import (
+    ConceptCrowdingDaily,
+    DailyQuote,
+    FactorScore,
+    FundamentalSnapshot,
+    MarketStateDaily,
+    StockBasic,
+)
 
 
 def utc_now_text() -> str:
@@ -196,6 +203,169 @@ class Database:
                 """,
                 payload,
             )
+
+    def replace_strategy_signals(
+        self,
+        trade_date: str,
+        items: list[FactorScore],
+        market_state: str | None = None,
+    ) -> None:
+        def market_action(rating: str) -> str:
+            if market_state == "进攻" and rating in {"S", "A"}:
+                return "市场进攻：S/A 可参与虚拟买入，总仓位上限 100%"
+            if market_state == "震荡" and rating == "S":
+                return "市场震荡：S 可虚拟买入，A 只观察，总仓位上限 60%"
+            if market_state == "震荡" and rating == "A":
+                return "市场震荡：A 只进入观察池，总仓位上限 60%"
+            if market_state == "防守":
+                return "市场防守：所有评级只观察，不开新仓，总仓位上限 0%~30%"
+            return "市场状态未约束开仓"
+
+        payload: list[tuple[object, ...]] = []
+        for index, item in enumerate(items[:50], start=1):
+            payload.append(
+                (
+                    trade_date,
+                    item.stock_code,
+                    "phase2_market_crowding_rating",
+                    "top50",
+                    item.total_score,
+                    item.rating,
+                    f"Top50 rank {index}; {market_action(item.rating)}；{item.reason}",
+                    utc_now_text(),
+                )
+            )
+        for item in items:
+            if item.rating == "S":
+                signal_type = "s_rating"
+            elif item.rating == "A":
+                signal_type = "a_rating"
+            elif item.rating == "R":
+                signal_type = "risk_exclude"
+            else:
+                continue
+            payload.append(
+                (
+                    trade_date,
+                    item.stock_code,
+                    "phase2_market_crowding_rating",
+                    signal_type,
+                    item.total_score,
+                    item.rating,
+                    f"{market_action(item.rating)}；{item.reason}",
+                    utc_now_text(),
+                )
+            )
+        with self.connect() as connection:
+            connection.execute("DELETE FROM strategy_signals WHERE trade_date = ?", (trade_date,))
+            connection.executemany(
+                """
+                INSERT INTO strategy_signals (
+                    trade_date, stock_code, strategy_name, signal_type, score, rating, reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                payload,
+            )
+
+    def replace_market_state(self, item: MarketStateDaily) -> None:
+        with self.connect() as connection:
+            connection.execute("DELETE FROM market_state_daily WHERE trade_date = ?", (item.trade_date,))
+            connection.execute(
+                """
+                INSERT INTO market_state_daily (
+                    trade_date, market_state, up_count, down_count, limit_up_count,
+                    limit_down_count, total_amount, index_trend, strong_stock_status,
+                    reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.trade_date,
+                    item.market_state,
+                    item.up_count,
+                    item.down_count,
+                    item.limit_up_count,
+                    item.limit_down_count,
+                    item.total_amount,
+                    item.index_trend,
+                    item.strong_stock_status,
+                    item.reason,
+                    utc_now_text(),
+                ),
+            )
+
+    def replace_concept_crowding(self, trade_date: str, items: list[ConceptCrowdingDaily]) -> None:
+        payload = [
+            (
+                item.trade_date,
+                item.concept_name,
+                item.concept_amount,
+                item.market_amount,
+                item.amount_ratio,
+                item.limit_up_count,
+                item.rsi_over_70_ratio,
+                item.avg_5d_return,
+                item.crowding_level,
+                utc_now_text(),
+            )
+            for item in items
+        ]
+        with self.connect() as connection:
+            connection.execute("DELETE FROM concept_crowding_daily WHERE trade_date = ?", (trade_date,))
+            connection.executemany(
+                """
+                INSERT INTO concept_crowding_daily (
+                    trade_date, concept_name, concept_amount, market_amount, amount_ratio,
+                    limit_up_count, rsi_over_70_ratio, avg_5d_return, crowding_level, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                payload,
+            )
+
+    def fetch_market_amount_history(self, trade_date: str, limit: int = 3) -> list[tuple[str, float]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT trade_date, SUM(amount) AS total_amount
+                FROM daily_quote
+                WHERE trade_date <= ?
+                GROUP BY trade_date
+                ORDER BY trade_date DESC
+                LIMIT ?
+                """,
+                (trade_date, limit),
+            ).fetchall()
+        return [(row["trade_date"], row["total_amount"] or 0.0) for row in rows]
+
+    def fetch_market_state(self, trade_date: str) -> sqlite3.Row | None:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT *
+                FROM market_state_daily
+                WHERE trade_date = ?
+                """,
+                (trade_date,),
+            ).fetchone()
+
+    def fetch_concept_crowding(self, trade_date: str) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT *
+                FROM concept_crowding_daily
+                WHERE trade_date = ?
+                ORDER BY
+                    CASE crowding_level
+                        WHEN '极高拥挤' THEN 1
+                        WHEN '高拥挤' THEN 2
+                        WHEN '中拥挤' THEN 3
+                        ELSE 4
+                    END,
+                    amount_ratio DESC,
+                    concept_name ASC
+                """,
+                (trade_date,),
+            ).fetchall()
 
     def fetch_stock_pool_report_rows(self, trade_date: str) -> list[sqlite3.Row]:
         with self.connect() as connection:

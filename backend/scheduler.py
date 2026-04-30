@@ -57,7 +57,11 @@ class DailySchedulerService:
             if result is not None:
                 print(
                     f"daily job completed trade_date={result.trade_date.isoformat()} "
-                    f"data_confidence={result.data_confidence} report={result.report_path}"
+                    f"data_confidence={result.data_confidence} report={result.report_path} "
+                    f"market_state={result.market_state} "
+                    f"crowding={result.medium_crowding_count}/"
+                    f"{result.high_crowding_count}/{result.extreme_crowding_count} "
+                    f"factor_report={result.factor_report_path}"
                 )
             time_module.sleep(self.poll_seconds)
 

@@ -5,6 +5,8 @@ from datetime import date
 
 from backend.config import settings
 from backend.data_collectors.data_quality_checker import DataQualityChecker
+from backend.data_collectors.fundamental_collector import FundamentalCollector
+from backend.data_collectors.history_collector import HistoricalQuoteCollector
 from backend.data_collectors.providers.base_provider import BaseMarketDataProvider
 from backend.data_collectors.providers.akshare_provider import AkshareProvider
 from backend.data_collectors.providers.base_provider import DisabledMarketDataProvider, ProviderError
@@ -16,6 +18,8 @@ from backend.data_collectors.quote_collector import QuoteCollector
 from backend.db.repository import Database
 from backend.errors import PipelineExecutionError
 from backend.reports.daily_report import DailyReportContext, DailyReportService
+from backend.reports.factor_report import FactorReportContext, FactorReportService
+from backend.scoring.score_engine import ScoreEngine
 
 
 @dataclass
@@ -30,6 +34,16 @@ class PipelineResult:
     provider_warnings: tuple[str, ...]
     market_data_status: str
     report_path: str
+    factor_report_path: str | None = None
+    scored_count: int = 0
+    top50_count: int = 0
+    s_count: int = 0
+    a_count: int = 0
+    risk_count: int = 0
+    market_state: str | None = None
+    medium_crowding_count: int = 0
+    high_crowding_count: int = 0
+    extreme_crowding_count: int = 0
 
 
 def build_provider() -> BaseMarketDataProvider:
@@ -102,6 +116,26 @@ def run_phase0_pipeline(
             (quality_report.summary, *quote_result.warnings),
         )
 
+    fundamental_count = 0
+    try:
+        fundamental_count = FundamentalCollector(provider=provider, database=database).collect(
+            effective_date,
+            filter_result.tradable,
+        )
+    except ProviderError as exc:
+        notes.append(f"基本面数据采集失败，基本面分将按缺失处理: {exc}")
+    if fundamental_count:
+        notes.append(f"基本面数据入库数量: {fundamental_count}")
+
+    history_count = 0
+    if provider_name != "mock":
+        history_count = HistoricalQuoteCollector(database=database).collect_tushare_daily_history(
+            effective_date,
+            [item.stock_code for item in filter_result.tradable],
+        )
+    if history_count:
+        notes.append(f"历史日线补充数量: {history_count}")
+
     report_service = DailyReportService(database=database)
     report_path = report_service.generate(
         DailyReportContext(
@@ -112,6 +146,24 @@ def run_phase0_pipeline(
             notes=tuple(notes),
         )
     )
+    score_result = ScoreEngine(database=database).calculate(
+        effective_date.isoformat(),
+        filter_result.tradable,
+    )
+    factor_report_path = FactorReportService(database=database).generate(
+        FactorReportContext(
+            trade_date=effective_date.isoformat(),
+            top50=score_result.top50,
+            s_list=score_result.s_list,
+            a_list=score_result.a_list,
+            risk_list=score_result.risk_list,
+            market_state=score_result.market_state,
+            crowding=score_result.crowding,
+        )
+    )
+    medium_crowding_count = sum(1 for item in score_result.crowding if item.crowding_level == "中拥挤")
+    high_crowding_count = sum(1 for item in score_result.crowding if item.crowding_level == "高拥挤")
+    extreme_crowding_count = sum(1 for item in score_result.crowding if item.crowding_level == "极高拥挤")
 
     return PipelineResult(
         trade_date=effective_date,
@@ -124,4 +176,14 @@ def run_phase0_pipeline(
         provider_warnings=tuple(getattr(provider, "last_warnings", ()) or ()),
         market_data_status=quality_report.market_data_status,
         report_path=str(report_path),
+        factor_report_path=str(factor_report_path),
+        scored_count=len(score_result.scores),
+        top50_count=len(score_result.top50),
+        s_count=len(score_result.s_list),
+        a_count=len(score_result.a_list),
+        risk_count=len(score_result.risk_list),
+        market_state=score_result.market_state.market_state,
+        medium_crowding_count=medium_crowding_count,
+        high_crowding_count=high_crowding_count,
+        extreme_crowding_count=extreme_crowding_count,
     )

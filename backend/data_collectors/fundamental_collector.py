@@ -12,10 +12,11 @@ class FundamentalCollector:
         self.provider = provider
         self.database = database
 
-    def collect(self, trade_date: date, tradable_stocks: list[StockBasic]) -> None:
+    def collect(self, trade_date: date, tradable_stocks: list[StockBasic]) -> int:
         fundamentals = self.provider.fetch_fundamentals(
             stock_codes=[item.stock_code for item in tradable_stocks],
             trade_date=trade_date.isoformat(),
         )
         if fundamentals:
             self.database.upsert_fundamentals(fundamentals)
+        return len(fundamentals)

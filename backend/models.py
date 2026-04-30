@@ -64,3 +64,30 @@ class FactorScore:
     total_score: float
     rating: str
     reason: str
+
+
+@dataclass
+class MarketStateDaily:
+    trade_date: str
+    market_state: str
+    up_count: int
+    down_count: int
+    limit_up_count: int
+    limit_down_count: int
+    total_amount: float
+    index_trend: str
+    strong_stock_status: str
+    reason: str
+
+
+@dataclass
+class ConceptCrowdingDaily:
+    trade_date: str
+    concept_name: str
+    concept_amount: float
+    market_amount: float
+    amount_ratio: float
+    limit_up_count: int
+    rsi_over_70_ratio: float
+    avg_5d_return: float
+    crowding_level: str

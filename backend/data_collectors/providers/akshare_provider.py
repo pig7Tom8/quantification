@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,6 +31,17 @@ def _safe_float(value: object, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _report_period_for_trade_date(trade_date: str) -> str:
+    parsed = date.fromisoformat(trade_date)
+    if parsed.month >= 11:
+        return f"{parsed.year}0930"
+    if parsed.month >= 8:
+        return f"{parsed.year}0630"
+    if parsed.month >= 4:
+        return f"{parsed.year}0331"
+    return f"{parsed.year - 1}1231"
 
 
 class AkshareProvider(BaseMarketDataProvider):
@@ -364,29 +375,51 @@ class AkshareProvider(BaseMarketDataProvider):
         return quotes
 
     def fetch_fundamentals(self, stock_codes: list[str], trade_date: str) -> list[FundamentalSnapshot]:
+        requested = set(stock_codes)
+        report_period = _report_period_for_trade_date(trade_date)
+        try:
+            performance_frame = ak.stock_yjbb_em(date=report_period)
+        except Exception as exc:
+            raise ProviderError(f"akshare financial performance fetch failed: {exc}") from exc
+
+        debt_lookup: dict[str, object] = {}
+        cashflow_lookup: dict[str, object] = {}
+        try:
+            debt_frame = ak.stock_zcfz_em(date=report_period)
+            debt_lookup = {
+                _full_stock_code(str(row.get("股票代码", "")).strip().zfill(6)): row.get("资产负债率")
+                for _, row in debt_frame.iterrows()
+            }
+        except Exception:
+            debt_lookup = {}
+        try:
+            cashflow_frame = ak.stock_xjll_em(date=report_period)
+            cashflow_lookup = {
+                _full_stock_code(str(row.get("股票代码", "")).strip().zfill(6)): row.get("经营性现金流-现金流量净额")
+                for _, row in cashflow_frame.iterrows()
+            }
+        except Exception:
+            cashflow_lookup = {}
+
         snapshots: list[FundamentalSnapshot] = []
-        today = datetime.strptime(trade_date, "%Y-%m-%d").strftime("%Y%m%d")
-        for stock_code in stock_codes[:50]:
-            symbol = stock_code.split(".")[0]
-            try:
-                frame = ak.stock_financial_analysis_indicator(symbol=symbol)
-            except Exception:
+        for _, row in performance_frame.iterrows():
+            stock_code = _full_stock_code(str(row.get("股票代码", "")).strip().zfill(6))
+            if stock_code not in requested:
                 continue
-            if frame.empty:
-                continue
-            row = frame.iloc[0]
             snapshots.append(
                 FundamentalSnapshot(
                     stock_code=stock_code,
                     trade_date=trade_date,
-                    revenue_yoy=_safe_float(row.get("主营业务收入增长率(%)"), None),
-                    net_profit_yoy=_safe_float(row.get("净利润增长率(%)"), None),
-                    roe=_safe_float(row.get("净资产收益率(%)"), None),
-                    gross_margin=_safe_float(row.get("销售毛利率(%)"), None),
-                    debt_ratio=_safe_float(row.get("资产负债率(%)"), None),
-                    operating_cashflow=_safe_float(row.get("每股经营性现金流(元)"), None),
+                    revenue_yoy=_safe_float(row.get("营业总收入-同比增长"), None),
+                    net_profit_yoy=_safe_float(row.get("净利润-同比增长"), None),
+                    roe=_safe_float(row.get("净资产收益率"), None),
+                    gross_margin=_safe_float(row.get("销售毛利率"), None),
+                    debt_ratio=_safe_float(debt_lookup.get(stock_code), None),
+                    operating_cashflow=_safe_float(cashflow_lookup.get(stock_code), None),
                     goodwill=None,
-                    source_status="fresh" if today else "fresh",
+                    source_status="fresh",
                 )
             )
+        if not snapshots:
+            raise ProviderError("akshare returned empty fundamental snapshots")
         return snapshots
