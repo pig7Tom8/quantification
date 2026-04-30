@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS stock_basic (
     industry TEXT,
     concepts TEXT,
     market_cap REAL,
+    float_market_cap REAL,
     is_st INTEGER,
     list_date TEXT,
     status TEXT,
@@ -166,4 +167,3 @@ CREATE TABLE IF NOT EXISTS strategy_daily_snapshot (
     created_at TEXT
 );
 """
-

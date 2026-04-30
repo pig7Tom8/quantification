@@ -8,7 +8,7 @@ from typing import Iterator
 
 from backend.config import settings
 from backend.db.schema import SCHEMA_SQL
-from backend.models import DailyQuote, FundamentalSnapshot, StockBasic
+from backend.models import DailyQuote, FactorScore, FundamentalSnapshot, StockBasic
 
 
 def utc_now_text() -> str:
@@ -32,6 +32,12 @@ class Database:
     def initialize(self) -> None:
         with self.connect() as connection:
             connection.executescript(SCHEMA_SQL)
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(stock_basic)").fetchall()
+            }
+            if "float_market_cap" not in columns:
+                connection.execute("ALTER TABLE stock_basic ADD COLUMN float_market_cap REAL DEFAULT 0")
 
     def upsert_stock_basics(self, items: list[StockBasic]) -> None:
         payload = [
@@ -42,6 +48,7 @@ class Database:
                 item.industry,
                 item.concepts,
                 item.market_cap,
+                item.float_market_cap,
                 int(item.is_st),
                 item.list_date,
                 item.status,
@@ -56,14 +63,15 @@ class Database:
                 """
                 INSERT INTO stock_basic (
                     stock_code, stock_name, exchange, industry, concepts, market_cap,
-                    is_st, list_date, status, avg_amount_20d, is_suspended, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    float_market_cap, is_st, list_date, status, avg_amount_20d, is_suspended, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(stock_code) DO UPDATE SET
                     stock_name = excluded.stock_name,
                     exchange = excluded.exchange,
                     industry = excluded.industry,
                     concepts = excluded.concepts,
                     market_cap = excluded.market_cap,
+                    float_market_cap = excluded.float_market_cap,
                     is_st = excluded.is_st,
                     list_date = excluded.list_date,
                     status = excluded.status,
@@ -159,6 +167,36 @@ class Database:
                 payload,
             )
 
+    def replace_factor_scores(self, trade_date: str, items: list[FactorScore]) -> None:
+        payload = [
+            (
+                item.stock_code,
+                item.trade_date,
+                item.trend_score,
+                item.money_score,
+                item.fundamental_score,
+                item.news_score,
+                item.risk_score,
+                item.crowding_adjustment,
+                item.total_score,
+                item.rating,
+                item.reason,
+                utc_now_text(),
+            )
+            for item in items
+        ]
+        with self.connect() as connection:
+            connection.execute("DELETE FROM factor_score WHERE trade_date = ?", (trade_date,))
+            connection.executemany(
+                """
+                INSERT INTO factor_score (
+                    stock_code, trade_date, trend_score, money_score, fundamental_score,
+                    news_score, risk_score, crowding_adjustment, total_score, rating, reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                payload,
+            )
+
     def fetch_stock_pool_report_rows(self, trade_date: str) -> list[sqlite3.Row]:
         with self.connect() as connection:
             return connection.execute(
@@ -177,7 +215,7 @@ class Database:
             rows = connection.execute(
                 """
                 SELECT stock_code, stock_name, exchange, industry, concepts, market_cap,
-                       is_st, list_date, status, avg_amount_20d, is_suspended
+                       float_market_cap, is_st, list_date, status, avg_amount_20d, is_suspended
                 FROM stock_basic
                 ORDER BY stock_code ASC
                 """
@@ -190,6 +228,7 @@ class Database:
                 industry=row["industry"],
                 concepts=row["concepts"],
                 market_cap=row["market_cap"] or 0.0,
+                float_market_cap=row["float_market_cap"] or 0.0,
                 is_st=bool(row["is_st"]),
                 list_date=row["list_date"],
                 status=row["status"],
@@ -198,6 +237,132 @@ class Database:
             )
             for row in rows
         ]
+
+    def fetch_daily_quotes_for_date(self, trade_date: str) -> dict[str, DailyQuote]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT stock_code, trade_date, open, high, low, close, volume, amount,
+                       turnover_rate, pct_chg, ma5, ma10, ma20, ma60
+                FROM daily_quote
+                WHERE trade_date = ?
+                """,
+                (trade_date,),
+            ).fetchall()
+        return {
+            row["stock_code"]: DailyQuote(
+                stock_code=row["stock_code"],
+                trade_date=row["trade_date"],
+                open=row["open"],
+                high=row["high"],
+                low=row["low"],
+                close=row["close"],
+                volume=row["volume"],
+                amount=row["amount"],
+                turnover_rate=row["turnover_rate"],
+                pct_chg=row["pct_chg"],
+                ma5=row["ma5"],
+                ma10=row["ma10"],
+                ma20=row["ma20"],
+                ma60=row["ma60"],
+            )
+            for row in rows
+        }
+
+    def fetch_quote_history(
+        self,
+        trade_date: str,
+        stock_codes: list[str],
+        limit: int = 60,
+    ) -> dict[str, list[DailyQuote]]:
+        if not stock_codes:
+            return {}
+        placeholders = ",".join("?" for _ in stock_codes)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT stock_code, trade_date, open, high, low, close, volume, amount,
+                       turnover_rate, pct_chg, ma5, ma10, ma20, ma60
+                FROM daily_quote
+                WHERE trade_date <= ? AND stock_code IN ({placeholders})
+                ORDER BY stock_code ASC, trade_date DESC
+                """,
+                [trade_date, *stock_codes],
+            ).fetchall()
+        history: dict[str, list[DailyQuote]] = {}
+        for row in rows:
+            items = history.setdefault(row["stock_code"], [])
+            if len(items) >= limit:
+                continue
+            items.append(
+                DailyQuote(
+                    stock_code=row["stock_code"],
+                    trade_date=row["trade_date"],
+                    open=row["open"],
+                    high=row["high"],
+                    low=row["low"],
+                    close=row["close"],
+                    volume=row["volume"],
+                    amount=row["amount"],
+                    turnover_rate=row["turnover_rate"],
+                    pct_chg=row["pct_chg"],
+                    ma5=row["ma5"],
+                    ma10=row["ma10"],
+                    ma20=row["ma20"],
+                    ma60=row["ma60"],
+                )
+            )
+        return {stock_code: list(reversed(items)) for stock_code, items in history.items()}
+
+    def fetch_latest_fundamentals(self, stock_codes: list[str]) -> dict[str, FundamentalSnapshot]:
+        if not stock_codes:
+            return {}
+        placeholders = ",".join("?" for _ in stock_codes)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT f1.stock_code, f1.trade_date, f1.revenue_yoy, f1.net_profit_yoy,
+                       f1.roe, f1.gross_margin, f1.debt_ratio, f1.operating_cashflow,
+                       f1.goodwill, f1.source_status
+                FROM fundamental_snapshot f1
+                INNER JOIN (
+                    SELECT stock_code, MAX(trade_date) AS max_trade_date
+                    FROM fundamental_snapshot
+                    WHERE stock_code IN ({placeholders})
+                    GROUP BY stock_code
+                ) f2
+                ON f1.stock_code = f2.stock_code AND f1.trade_date = f2.max_trade_date
+                """,
+                stock_codes,
+            ).fetchall()
+        return {
+            row["stock_code"]: FundamentalSnapshot(
+                stock_code=row["stock_code"],
+                trade_date=row["trade_date"],
+                revenue_yoy=row["revenue_yoy"],
+                net_profit_yoy=row["net_profit_yoy"],
+                roe=row["roe"],
+                gross_margin=row["gross_margin"],
+                debt_ratio=row["debt_ratio"],
+                operating_cashflow=row["operating_cashflow"],
+                goodwill=row["goodwill"],
+                source_status=row["source_status"],
+            )
+            for row in rows
+        }
+
+    def fetch_factor_scores(self, trade_date: str) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return connection.execute(
+                """
+                SELECT fs.*, sb.stock_name, sb.industry
+                FROM factor_score fs
+                LEFT JOIN stock_basic sb ON fs.stock_code = sb.stock_code
+                WHERE fs.trade_date = ?
+                ORDER BY fs.total_score DESC, fs.stock_code ASC
+                """,
+                (trade_date,),
+            ).fetchall()
 
     def has_stock_basics_for_date(self, target_date: date) -> bool:
         with self.connect() as connection:

@@ -49,12 +49,19 @@ def main() -> None:
             "SELECT COUNT(*) FROM stock_basic WHERE stock_code = '603000.SH'"
         ).fetchone()[0]
         assert st_rows == 1, "full stock basic snapshot should include excluded stocks"
+        byd_row = connection.execute(
+            "SELECT industry, market_cap, float_market_cap FROM stock_basic WHERE stock_code = '002594.SZ'"
+        ).fetchone()
+        assert byd_row[0] == "汽车", "industry should be populated in stock_basic"
+        assert byd_row[1] > 0, "market_cap should be populated in stock_basic"
+        assert byd_row[2] > 0, "float_market_cap should be populated in stock_basic"
 
     report_text = REPORT_PATH.read_text(encoding="utf-8")
     assert "603000.SH" in report_text, "excluded ST stock should appear in report"
     assert "当前运行使用 mock provider。" in report_text, "mock provider note missing from report"
     assert "数据可信度评级" in report_text, "data confidence section missing from report"
     assert "数据质量摘要" in report_text, "data quality summary missing from report"
+    assert "| 002594.SZ | 比亚迪 | 汽车 |" in report_text, "report should display populated industry values"
 
     scheduler = DailySchedulerService()
     scheduled_for_today = datetime.combine(date.today(), scheduler.daily_time)

@@ -24,6 +24,7 @@ def stock(code: str, avg_amount: float = 100000000.0, is_st: bool = False, list_
         industry="行业",
         concepts="概念",
         market_cap=1000000000.0,
+        float_market_cap=800000000.0,
         is_st=is_st,
         list_date=list_date,
         status="active",

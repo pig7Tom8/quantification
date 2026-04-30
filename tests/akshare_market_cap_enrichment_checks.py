@@ -24,24 +24,26 @@ def main() -> None:
     provider._load_spot = lambda: FakeFrame(
         [
             {"代码": "000001", "名称": "平安银行", "成交额": 1000000000, "最新价": 11.5},
-            {"代码": "600519", "名称": "贵州茅台", "成交额": 2000000000, "最新价": 1400.0},
+            {"代码": "300750", "名称": "宁德时代", "成交额": 2000000000, "最新价": 445.0},
         ]
     )
     provider._load_industry_map.cache_clear()
+    provider._load_concept_map.cache_clear()
     provider._load_industry_map = lambda: {  # type: ignore[method-assign]
         "000001.SZ": "J 金融业",
-        "600519.SH": "C 制造业",
+        "300750.SZ": "C 制造业",
     }
+    provider._load_concept_map = lambda: {}  # type: ignore[method-assign]
     provider._load_market_cap_map = lambda stock_codes: {  # type: ignore[method-assign]
-        "000001.SZ": (2100e8, 1800e8),
-        "600519.SH": (22000e8, 21000e8),
+        "000001.SZ": (223556177641.0, 223552519523.0),
+        "300750.SZ": (2031015656960.0, 1894298249110.0),
     }
 
     items = provider.fetch_stock_basics()
-    industry_map = {item.stock_code: item.industry for item in items}
-    assert industry_map["000001.SZ"] == "J 金融业"
-    assert industry_map["600519.SH"] == "C 制造业"
-    print("AkShare industry enrichment checks passed.")
+    market_caps = {item.stock_code: (item.market_cap, item.float_market_cap) for item in items}
+    assert market_caps["000001.SZ"] == (223556177641.0, 223552519523.0)
+    assert market_caps["300750.SZ"] == (2031015656960.0, 1894298249110.0)
+    print("AkShare market cap enrichment checks passed.")
 
 
 if __name__ == "__main__":

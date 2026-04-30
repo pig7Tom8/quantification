@@ -55,6 +55,7 @@ class TushareProvider(BaseMarketDataProvider):
                     industry=str(row.get("industry", "")).strip(),
                     concepts="",
                     market_cap=0.0,
+                    float_market_cap=0.0,
                     is_st="ST" in str(row.get("name", "")).upper(),
                     list_date=list_date or "2000-01-01",
                     status="active",

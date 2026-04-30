@@ -50,6 +50,7 @@ class EastmoneyBackupProvider(BaseMarketDataProvider):
                 industry="银行",
                 concepts="金融",
                 market_cap=1.0,
+                float_market_cap=1.0,
                 is_st=False,
                 list_date="2000-01-01",
                 status="active",

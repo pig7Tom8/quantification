@@ -26,6 +26,9 @@ def filter_tradable_stocks(items: list[StockBasic], as_of: date) -> PoolFilterRe
         if item.is_st:
             excluded.append((item, "ST / *ST"))
             continue
+        if item.status == "risk":
+            excluded.append((item, "退市风险股票"))
+            continue
         if item.is_suspended:
             excluded.append((item, "长期停牌"))
             continue
@@ -35,8 +38,11 @@ def filter_tradable_stocks(items: list[StockBasic], as_of: date) -> PoolFilterRe
         if _listing_days(item.list_date, as_of) < settings.min_listing_days:
             excluded.append((item, "上市不足 120 个交易日"))
             continue
+        if item.avg_amount_20d <= 0:
+            excluded.append((item, "流动性明显不足"))
+            continue
         if item.avg_amount_20d < settings.min_avg_amount_20d:
-            excluded.append((item, "近 20 日平均成交额不足"))
+            excluded.append((item, "近 20 日平均成交额低于 5000 万"))
             continue
         tradable.append(item)
 

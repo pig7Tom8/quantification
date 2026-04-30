@@ -93,7 +93,7 @@ def run_phase0_pipeline(
         notes.append("股票基础信息沿用昨日股票池。")
     if quote_result.historical_quotes:
         notes.append("历史行情可作为均线兜底，但今日关键行情缺失。")
-    if settings.use_mock_provider:
+    if provider_name == "mock":
         notes.append("当前运行使用 mock provider。")
 
     if not quality_report.formal_output_allowed:

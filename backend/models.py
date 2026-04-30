@@ -11,6 +11,7 @@ class StockBasic:
     industry: str
     concepts: str
     market_cap: float
+    float_market_cap: float
     is_st: bool
     list_date: str
     status: str
@@ -48,3 +49,18 @@ class FundamentalSnapshot:
     operating_cashflow: float | None
     goodwill: float | None
     source_status: str = "fresh"
+
+
+@dataclass
+class FactorScore:
+    stock_code: str
+    trade_date: str
+    trend_score: float
+    money_score: float
+    fundamental_score: float
+    news_score: float
+    risk_score: float
+    crowding_adjustment: float
+    total_score: float
+    rating: str
+    reason: str

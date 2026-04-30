@@ -51,6 +51,7 @@ def make_stock_basic(code: str = "000001.SZ", is_st: bool = False) -> StockBasic
         industry="银行",
         concepts="金融",
         market_cap=1.0,
+        float_market_cap=1.0,
         is_st=is_st,
         list_date="1991-04-03" if not is_st else "2010-05-10",
         status="active" if not is_st else "risk",

@@ -9,12 +9,12 @@ class MockMarketDataProvider(BaseMarketDataProvider):
 
     def fetch_stock_basics(self) -> list[StockBasic]:
         return [
-            StockBasic("000001.SZ", "平安银行", "SZ", "银行", "金融;高股息", 2100e8, False, "1991-04-03", "active", 12e8),
-            StockBasic("300750.SZ", "宁德时代", "SZ", "电池", "新能源;锂电池", 8900e8, False, "2018-06-11", "active", 68e8),
-            StockBasic("688981.SH", "中芯国际", "SH", "半导体", "芯片;国产替代", 4200e8, False, "2020-07-16", "active", 54e8),
-            StockBasic("600519.SH", "贵州茅台", "SH", "白酒", "消费;高端白酒", 22000e8, False, "2001-08-27", "active", 35e8),
-            StockBasic("002594.SZ", "比亚迪", "SZ", "汽车", "新能源车;电池", 7600e8, False, "2011-06-30", "active", 72e8),
-            StockBasic("603000.SH", "*ST示例", "SH", "制造业", "示例概念", 32e8, True, "2010-05-10", "risk", 0.4e8),
+            StockBasic("000001.SZ", "平安银行", "SZ", "银行", "金融;高股息", 2100e8, 1800e8, False, "1991-04-03", "active", 12e8),
+            StockBasic("300750.SZ", "宁德时代", "SZ", "电池", "新能源;锂电池", 8900e8, 7600e8, False, "2018-06-11", "active", 68e8),
+            StockBasic("688981.SH", "中芯国际", "SH", "半导体", "芯片;国产替代", 4200e8, 3100e8, False, "2020-07-16", "active", 54e8),
+            StockBasic("600519.SH", "贵州茅台", "SH", "白酒", "消费;高端白酒", 22000e8, 21000e8, False, "2001-08-27", "active", 35e8),
+            StockBasic("002594.SZ", "比亚迪", "SZ", "汽车", "新能源车;电池", 7600e8, 6200e8, False, "2011-06-30", "active", 72e8),
+            StockBasic("603000.SH", "*ST示例", "SH", "制造业", "示例概念", 32e8, 28e8, True, "2010-05-10", "risk", 0.4e8),
         ]
 
     def fetch_daily_quotes(self, stock_codes: list[str], trade_date: str) -> list[DailyQuote]:
